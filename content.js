@@ -24,13 +24,29 @@ function getPageTitle() {
     return title;
 }
 
-// Listener for messages coming from the background script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "getMetadata") {
-        const extractedTitle = getPageTitle();
-        // Send the extracted title back to the background script
-        sendResponse({ title: extractedTitle });
+// Send the title to the background script when the page loads
+function sendTitleToBackground() {
+    const title = getPageTitle();
+    chrome.runtime.sendMessage({
+        action: "storeTitle",
+        pageUrl: window.location.href,
+        title: title
+    });
+    console.log("Title sent to background script:", title);
+}
+
+// Send title when page loads
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', sendTitleToBackground);
+} else {
+    sendTitleToBackground();
+}
+
+// Also send title whenever a download link is clicked (as backup)
+document.addEventListener('click', (e) => {
+    const link = e.target.closest('a[href*=".epub"], a[href*=".pdf"], a[href*=".mobi"], a[href*=".txt"]');
+    if (link) {
+        console.log("Download link clicked, refreshing title cache");
+        sendTitleToBackground();
     }
-    // Return true to indicate that we will send a response asynchronously
-    return true; 
-});
+}, true);

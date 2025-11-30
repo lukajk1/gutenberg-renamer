@@ -1,6 +1,6 @@
 // The domain we are interested in monitoring
 const TARGET_DOMAIN = "www.gutenberg.org";
-const lastTitles = {}; // Storage for titles fetched by downloadId
+const titleCache = {}; // Storage for titles by page URL
 
 // --- UTILITY FUNCTION ---
 function checkDomain(downloadUrl) {
@@ -14,42 +14,41 @@ function checkDomain(downloadUrl) {
     }
 }
 
-// --- STEP 1: LISTEN FOR DOWNLOAD CREATION (TO FETCH TITLE) ---
-chrome.downloads.onCreated.addListener((downloadItem) => {
-    
-    // Check if the download URL is from the target domain
-    if (checkDomain(downloadItem.url)) {
+// --- LISTEN FOR TITLE UPDATES FROM CONTENT SCRIPT ---
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "storeTitle" && request.pageUrl && request.title) {
+        titleCache[request.pageUrl] = {
+            title: request.title,
+            timestamp: Date.now()
+        };
+        console.log(`Title cached for ${request.pageUrl}: ${request.title}`);
         
-        // --- DEBUG STATEMENT ---
-        console.log("✅ Gutenberg Download Detected. Requesting Title from Tab...");
-        
-        // Find the active tab associated with this download.
-        chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-            if (tabs.length === 0) return;
-            
-            const tabId = tabs[0].id;
+        // Clean up old entries (older than 5 minutes)
+        const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+        for (const url in titleCache) {
+            if (titleCache[url].timestamp < fiveMinutesAgo) {
+                delete titleCache[url];
+            }
+        }
+    }
+});
 
-            // Send a message to the Content Script in the active tab
-            chrome.tabs.sendMessage(tabId, { action: "getMetadata" }, (response) => {
-                if (chrome.runtime.lastError) {
-                    console.error("Error communicating with content script: ", chrome.runtime.lastError.message);
-                    return;
-                }
-                
-                if (response && response.title) {
-                    // Store the fetched title using downloadItem.id (not tabId!)
-                    lastTitles[downloadItem.id] = response.title;
-                    console.log(`Title stored for Download ${downloadItem.id}: ${response.title}`);
-                }
-            });
-        });
+// --- LISTEN FOR DOWNLOAD CREATION ---
+chrome.downloads.onCreated.addListener((downloadItem) => {
+    if (checkDomain(downloadItem.url)) {
+        console.log("✅ Gutenberg Download Detected");
+        
+        // Try to find the title from the referrer (the page that initiated the download)
+        if (downloadItem.referrer && titleCache[downloadItem.referrer]) {
+            console.log(`Found cached title for download ${downloadItem.id}`);
+        }
     }
 });
 
 // ----------------------------------------------------------------------
-// --- STEP 2: LISTEN FOR FILENAME DETERMINATION (TO APPLY RENAMING) ---
+// --- LISTEN FOR FILENAME DETERMINATION (TO APPLY RENAMING) ---
 
-// The filename cleaning logic - now formats as "Author - Title"
+// The filename cleaning logic - formats as "Author - Title"
 function cleanFilename(rawTitle) {
     if (!rawTitle) return "untitled_download";
 
@@ -65,7 +64,6 @@ function cleanFilename(rawTitle) {
         // Format as "Author - Title"
         filename = `${author} - ${title}`;
     }
-    // If no "by" found, keep the original title as-is
     
     // Remove illegal filename characters but keep spaces
     const illegalCharsRegex = /[<>:"/\\|?*\u0000-\u001F]/g;
@@ -77,50 +75,37 @@ function cleanFilename(rawTitle) {
     return filename;
 }
 
-
 chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
     
     // Ensure this item is from the target domain
     if (!checkDomain(downloadItem.url)) {
-        // If not from the target domain, let the browser handle the naming
         return false;
     }
     
-    // Function to attempt renaming with retry logic
-    const attemptRename = (retryCount = 0) => {
-        const rawTitle = lastTitles[downloadItem.id];
+    // Get title from cache using the referrer URL
+    const cachedData = downloadItem.referrer ? titleCache[downloadItem.referrer] : null;
+    const rawTitle = cachedData ? cachedData.title : null;
+    
+    if (rawTitle) {
+        const baseFilename = cleanFilename(rawTitle);
+        const extension = downloadItem.filename.split('.').pop();
+        const newFilename = `${baseFilename}.${extension}`;
         
-        if (rawTitle) {
-            const baseFilename = cleanFilename(rawTitle);
-            // Get the file extension from the original suggested filename
-            const extension = downloadItem.filename.split('.').pop();
-            
-            const newFilename = `${baseFilename}.${extension}`;
-            
-            console.log(`✅ Renaming file from ${downloadItem.filename} to ${newFilename}`);
+        console.log(`✅ Renaming file from ${downloadItem.filename} to ${newFilename}`);
 
-            // Use the suggest callback to tell the browser the new name
-            suggest({
-                filename: newFilename,
-                conflictAction: 'uniquify' // The browser automatically adds (1), (2), etc.
-            });
+        suggest({
+            filename: newFilename,
+            conflictAction: 'uniquify'
+        });
 
-            // Clean up the stored title immediately after use
-            delete lastTitles[downloadItem.id];
-            
-        } else if (retryCount < 10) {
-            // Title not ready yet, wait a bit and retry (max 10 times = ~1 second)
-            console.log(`Waiting for title... retry ${retryCount + 1}`);
-            setTimeout(() => attemptRename(retryCount + 1), 100);
-        } else {
-            console.warn("Title not available for renaming after retries. Using default filename.");
-            suggest(); 
+        // Clean up the cached title
+        if (downloadItem.referrer) {
+            delete titleCache[downloadItem.referrer];
         }
-    };
+    } else {
+        console.warn("Title not available for renaming. Using default filename.");
+        suggest(); 
+    }
     
-    // Start the rename attempt
-    attemptRename();
-    
-    // Returning true indicates that suggest() will be called asynchronously
     return true; 
 });
