@@ -36,7 +36,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // --- LISTEN FOR DOWNLOAD CREATION ---
 chrome.downloads.onCreated.addListener((downloadItem) => {
     if (checkDomain(downloadItem.url)) {
-        console.log("✅ Gutenberg Download Detected");
+        console.log("Gutenberg Download Detected");
         
         // Try to find the title from the referrer (the page that initiated the download)
         if (downloadItem.referrer && titleCache[downloadItem.referrer]) {
@@ -91,7 +91,7 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
         const extension = downloadItem.filename.split('.').pop();
         const newFilename = `${baseFilename}.${extension}`;
         
-        console.log(`✅ Renaming file from ${downloadItem.filename} to ${newFilename}`);
+        console.log(`Renaming file from ${downloadItem.filename} to ${newFilename}`);
 
         suggest({
             filename: newFilename,
