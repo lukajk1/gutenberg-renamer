@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Gutenberg Download Renamer",
+  "version": "1.0",
+  "description": "Automatically renames Gutenberg downloads based on metadata.",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "permissions": [
+    "downloads",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.gutenberg.org/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
