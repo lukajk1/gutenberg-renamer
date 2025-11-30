@@ -82,9 +82,40 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
         return false;
     }
     
-    // Get title from cache using the referrer URL
-    const cachedData = downloadItem.referrer ? titleCache[downloadItem.referrer] : null;
-    const rawTitle = cachedData ? cachedData.title : null;
+    // DEBUG: Log all relevant information
+    console.log("=== DOWNLOAD DEBUG INFO ===");
+    console.log("Download URL:", downloadItem.url);
+    console.log("Referrer:", downloadItem.referrer);
+    console.log("Cached URLs:", Object.keys(titleCache));
+    console.log("========================");
+    
+    // Try to find title from cache - check exact match first, then fuzzy match
+    let rawTitle = null;
+    
+    if (downloadItem.referrer && titleCache[downloadItem.referrer]) {
+        // Exact match found
+        rawTitle = titleCache[downloadItem.referrer].title;
+        console.log("Exact referrer match found");
+    } else if (downloadItem.referrer) {
+        // Try fuzzy matching - strip query params and fragments
+        const cleanReferrer = downloadItem.referrer.split('?')[0].split('#')[0];
+        
+        for (const cachedUrl in titleCache) {
+            const cleanCached = cachedUrl.split('?')[0].split('#')[0];
+            if (cleanReferrer === cleanCached) {
+                rawTitle = titleCache[cachedUrl].title;
+                console.log("Fuzzy referrer match found");
+                break;
+            }
+        }
+    }
+    
+    // If still no match, try to find ANY cached title from gutenberg (last resort)
+    if (!rawTitle && Object.keys(titleCache).length > 0) {
+        const firstKey = Object.keys(titleCache)[0];
+        rawTitle = titleCache[firstKey].title;
+        console.log("Using most recent cached title as fallback");
+    }
     
     if (rawTitle) {
         const baseFilename = cleanFilename(rawTitle);
@@ -98,10 +129,14 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
             conflictAction: 'uniquify'
         });
 
-        // Clean up the cached title
-        if (downloadItem.referrer) {
-            delete titleCache[downloadItem.referrer];
-        }
+        // Don't delete the cache immediately - keep it for 30 seconds
+        // in case the user downloads multiple formats from the same book
+        setTimeout(() => {
+            if (downloadItem.referrer && titleCache[downloadItem.referrer]) {
+                delete titleCache[downloadItem.referrer];
+                console.log("Cleaned up cached title after 30 seconds");
+            }
+        }, 30000);
     } else {
         console.warn("Title not available for renaming. Using default filename.");
         suggest(); 

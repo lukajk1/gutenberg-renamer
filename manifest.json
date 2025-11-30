@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Gutenberg Download Renamer",
+  "name": "Download Renamer For Project Gutenberg",
   "version": "1.0",
-  "description": "Automatically renames Project Gutenberg downloads.",
+  "description": "A simple tool to automatically rename Project Gutenberg downloads.",
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
